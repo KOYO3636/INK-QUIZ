@@ -21,9 +21,9 @@
         const { useState, useEffect, useRef, useCallback } = React;
 
         // --- CONFIGURATION ---
-        const INK_CHAIN_ID = '0xde91'; // Ink Mainnet
+        const INK_CHAIN_ID_HEX = '0xde91'; // Ink Mainnet (57073)
         const PLAY_FEE = "0.0002";    // L-fees b l-ETH
-        const TREASURY_ADDRESS = "0xF9A612DD8E961211345C67F180CE95Aa6Fe2C760"; // L-adresse dyalk m9adda!
+        const TREASURY_ADDRESS = "0xF9A612DD8E961211345C67F180CE95Aa6Fe2C760"; 
 
         // --- Icons ---
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -58,6 +58,12 @@
             const [loading, setLoading] = useState(false);
             const [status, setStatus] = useState('');
 
+            // Helper to normalize chainId
+            const normalizeChainId = (id) => {
+                if (!id) return '';
+                return id.toString().startsWith('0x') ? id.toLowerCase() : '0x' + parseInt(id).toString(16).toLowerCase();
+            };
+
             // --- Wallet Logic ---
             const connectWallet = async () => {
                 if (!window.ethereum) return setStatus('Please install Rabby or MetaMask');
@@ -65,18 +71,40 @@
                     const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
                     const id = await window.ethereum.request({ method: 'eth_chainId' });
                     setAccount(accs[0]);
-                    setChainId(id.toLowerCase());
+                    setChainId(normalizeChainId(id));
+                    setStatus('');
                 } catch (e) { setStatus('Connection failed'); }
             };
 
             const switchNet = async () => {
+                if (!window.ethereum) return;
+                setStatus('Switching network...');
                 try {
+                    // Try to switch first
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
-                        params: [{ chainId: INK_CHAIN_ID }],
+                        params: [{ chainId: INK_CHAIN_ID_HEX }],
                     });
-                } catch (e) {
-                    setStatus('Please add Ink network to your wallet');
+                } catch (switchError) {
+                    // This error code (4902) means the chain has not been added to the wallet.
+                    if (switchError.code === 4902) {
+                        try {
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: INK_CHAIN_ID_HEX,
+                                    chainName: 'Ink',
+                                    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                                    rpcUrls: ['https://rpc-gel.inkonchain.com'],
+                                    blockExplorerUrls: ['https://explorer.inkonchain.com']
+                                }],
+                            });
+                        } catch (addError) {
+                            setStatus('Failed to add network');
+                        }
+                    } else {
+                        setStatus('Switch failed: ' + switchError.message);
+                    }
                 }
             };
 
@@ -125,17 +153,28 @@
                 }
             };
 
+            // Watch for account/network changes
+            useEffect(() => {
+                if (window.ethereum) {
+                    window.ethereum.on('accountsChanged', (accs) => setAccount(accs[0] || ''));
+                    window.ethereum.on('chainChanged', (id) => setChainId(normalizeChainId(id)));
+                }
+            }, []);
+
             // Update UI based on connection
             useEffect(() => {
-                if (account && chainId === INK_CHAIN_ID) {
+                const normInk = normalizeChainId(INK_CHAIN_ID_HEX);
+                const normCurrent = normalizeChainId(chainId);
+
+                if (account && normCurrent === normInk) {
                     if (gameState === 'CONNECT') setGameState('PAY');
-                } else if (account && chainId !== INK_CHAIN_ID) {
+                } else if (account && normCurrent !== normInk) {
                     setGameState('CONNECT');
                 }
             }, [account, chainId, gameState]);
 
             return (
-                <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+                <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-[#0a0d14]">
                     {/* Background Visuals */}
                     <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px]"></div>
                     <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px]"></div>
@@ -148,10 +187,10 @@
                                     <div className="mb-6 inline-flex p-4 bg-purple-500/10 rounded-full text-purple-500">
                                         <Icon name="wallet" size={48} />
                                     </div>
-                                    <h1 className="text-3xl font-black mb-4 tracking-tight uppercase italic">Ink Trivia Quiz</h1>
-                                    <p className="text-slate-400 mb-8 text-sm">To start, please connect your wallet to the Ink Network.</p>
+                                    <h1 className="text-3xl font-black mb-4 tracking-tight uppercase italic text-white">Ink Trivia Quiz</h1>
+                                    <p className="text-slate-400 mb-8 text-sm leading-relaxed">To start, please connect and switch your wallet to the Ink Network.</p>
                                     {!account ? (
-                                        <button onClick={connectWallet} className="w-full py-4 bg-purple-600 rounded-2xl font-black text-lg active:scale-95 transition-all">CONNECT WALLET</button>
+                                        <button onClick={connectWallet} className="w-full py-4 bg-purple-600 rounded-2xl font-black text-lg active:scale-95 transition-all text-white shadow-lg shadow-purple-600/20">CONNECT WALLET</button>
                                     ) : (
                                         <button onClick={switchNet} className="w-full py-4 bg-red-500/20 text-red-400 border border-red-500/20 rounded-2xl font-black text-lg active:scale-95 transition-all">SWITCH TO INK</button>
                                     )}
@@ -163,16 +202,16 @@
                                     <div className="mb-6 inline-flex p-4 bg-blue-500/10 rounded-full text-blue-500">
                                         <Icon name="lock" size={48} />
                                     </div>
-                                    <h1 className="text-2xl font-black mb-2 uppercase">Unlock Game</h1>
+                                    <h1 className="text-2xl font-black mb-2 uppercase text-white">Unlock Game</h1>
                                     <p className="text-slate-400 mb-6 text-sm">Entry fee required to play and win rewards.</p>
-                                    <div className="bg-[#131a2a] p-4 rounded-2xl border border-white/5 mb-8">
+                                    <div className="bg-[#131a2a] p-5 rounded-2xl border border-white/5 mb-8">
                                         <div className="text-3xl font-black text-white">{PLAY_FEE} ETH</div>
-                                        <div className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">Ink Network Fee</div>
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-widest">Ink Mainnet Fee</div>
                                     </div>
                                     <button 
                                         onClick={handlePayment} 
                                         disabled={loading}
-                                        className="w-full py-4 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                                        className="w-full py-4 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all disabled:opacity-50 text-white"
                                     >
                                         {loading ? "PROCESSING..." : "PAY & START"}
                                     </button>
@@ -187,10 +226,10 @@
                                             <Icon name="clock" size={14} /> {timeLeft}s
                                         </div>
                                     </div>
-                                    <h2 className="text-xl font-bold mb-8 leading-snug min-h-[60px]">{QUESTIONS[currentIdx].question}</h2>
+                                    <h2 className="text-xl font-bold mb-8 leading-snug min-h-[60px] text-white">{QUESTIONS[currentIdx].question}</h2>
                                     <div className="space-y-3">
                                         {QUESTIONS[currentIdx].options.map((opt, i) => (
-                                            <button key={i} onClick={() => handleAnswer(i)} className="w-full text-left p-4 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/10 transition-all font-medium active:scale-[0.98]">
+                                            <button key={i} onClick={() => handleAnswer(i)} className="w-full text-left p-4 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/10 transition-all font-medium active:scale-[0.98] text-slate-200">
                                                 {opt}
                                             </button>
                                         ))}
@@ -203,17 +242,17 @@
                                     <div className="mb-6 inline-flex p-4 bg-green-500/10 rounded-full text-green-500">
                                         <Icon name="check" size={48} />
                                     </div>
-                                    <h1 className="text-3xl font-black mb-2 uppercase italic tracking-tighter">Quiz Done!</h1>
+                                    <h1 className="text-3xl font-black mb-2 uppercase italic tracking-tighter text-white">Quiz Done!</h1>
                                     <p className="text-slate-500 text-sm mb-8">You finished the Ink Trivia challenge.</p>
                                     <div className="bg-[#131a2a] p-8 rounded-[32px] border border-white/5 mb-8">
                                         <div className="text-5xl font-black text-purple-500 mb-1">{score}/5</div>
                                         <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Final Score</div>
                                     </div>
-                                    <button onClick={() => window.location.reload()} className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl font-black text-lg hover:bg-white/10 transition-all">TRY AGAIN</button>
+                                    <button onClick={() => window.location.reload()} className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl font-black text-lg hover:bg-white/10 transition-all text-white">TRY AGAIN</button>
                                 </>
                             )}
 
-                            {status && <div className="mt-6 text-xs font-bold text-red-400 px-4 py-2 bg-red-500/10 rounded-xl border border-red-500/10">{status}</div>}
+                            {status && <div className="mt-6 text-[11px] font-bold text-red-400 px-4 py-2 bg-red-500/10 rounded-xl border border-red-500/10 animate-pulse">{status}</div>}
                         </div>
                     </div>
                 </div>
